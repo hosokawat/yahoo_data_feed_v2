@@ -32,6 +32,8 @@ const INITIAL_COL_COUNT = REQUIRED_FIELDS.length;
 const INITIAL_ROW_COUNT = 30;
 const FILE_SIZE_WARN_BYTES = 150 * 1024 * 1024;
 const ROW_LIMIT = 300_000;
+const YAHOO_FIELD_HELP_BASE_URL =
+  "https://ads-help.yahoo-net.jp/s/article/H000045740#:~:text=";
 const YAHOO_REFERENCE_LINKS = [
   {
     title: "動的ディスプレイ－データフィード（商品リスト）",
@@ -59,8 +61,10 @@ const createEmptyRow = (colCount: number): string[] =>
   Array.from({ length: colCount }, () => "");
 
 const parseClipboardTable = (raw: string): string[][] => {
+  if (raw.length === 0) return [];
   const normalized = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const lines = normalized.split("\n").filter((line) => line.length > 0);
+  // Keep blank lines as part of the pasted table structure.
+  const lines = normalized.split("\n");
   return lines.map((line) => line.split("\t"));
 };
 
@@ -385,6 +389,13 @@ const App = () => {
     await api.openExternal(url);
   };
 
+  const openFieldReference = async (fieldKey: string): Promise<void> => {
+    const trimmed = fieldKey.trim();
+    if (!trimmed) return;
+    const url = `${YAHOO_FIELD_HELP_BASE_URL}${encodeURIComponent(trimmed)}`;
+    await openReference(url);
+  };
+
   const setSftpField = <K extends keyof SftpFormState>(
     key: K,
     value: SftpFormState[K]
@@ -401,8 +412,8 @@ const App = () => {
     recordCount: number;
   } => {
     const nextIssues: ValidationIssue[] = [];
-    const headerToCol = new Map<string, number>();
-    const duplicateHeaderCols: number[] = [];
+    const arrayFieldSet = new Set<string>(ARRAY_FIELDS);
+    const headerToCols = new Map<string, number[]>();
 
     headers.forEach((header, colIndex) => {
       const trimmed = header.trim();
@@ -419,25 +430,42 @@ const App = () => {
         return;
       }
 
-      if (headerToCol.has(trimmed)) {
-        duplicateHeaderCols.push(colIndex);
-      } else {
-        headerToCol.set(trimmed, colIndex);
-      }
+      const existingCols = headerToCols.get(trimmed) ?? [];
+      existingCols.push(colIndex);
+      headerToCols.set(trimmed, existingCols);
     });
 
-    duplicateHeaderCols.forEach((colIndex) => {
-      nextIssues.push({
-        type: "error",
-        code: "E-002",
-        message: `ヘッダーが重複しています: ${headers[colIndex]}`,
-        row: 1,
-        col: colIndex + 1
+    headerToCols.forEach((colIndexes, field) => {
+      if (colIndexes.length <= 1 || arrayFieldSet.has(field)) return;
+      colIndexes.slice(1).forEach((colIndex) => {
+        nextIssues.push({
+          type: "error",
+          code: "E-002",
+          message: `ヘッダーが重複しています: ${headers[colIndex]}`,
+          row: 1,
+          col: colIndex + 1
+        });
       });
     });
 
+    const getColIndexes = (field: string): number[] => headerToCols.get(field) ?? [];
+    const getPrimaryCol = (field: string): number | undefined => getColIndexes(field)[0];
+    const hasAnyFieldValue = (row: string[], field: string): boolean =>
+      getColIndexes(field).some((col) => ((row[col] ?? "") as string).trim().length > 0);
+    const getMappedFieldValue = (row: string[], field: string): string => {
+      const colIndexes = getColIndexes(field);
+      if (colIndexes.length === 0) return "";
+      if (!arrayFieldSet.has(field)) {
+        return row[colIndexes[0]] ?? "";
+      }
+      const values = colIndexes
+        .map((col) => (row[col] ?? "").trim())
+        .filter((value) => value.length > 0);
+      return values.join(",");
+    };
+
     REQUIRED_FIELDS.forEach((requiredField) => {
-      if (!headerToCol.has(requiredField)) {
+      if (!headerToCols.has(requiredField)) {
         nextIssues.push({
           type: "error",
           code: "E-001",
@@ -447,7 +475,7 @@ const App = () => {
       }
     });
 
-    if (headerToCol.has("Delete")) {
+    if (headerToCols.has("Delete")) {
       nextIssues.push({
         type: "warning",
         code: "W-005",
@@ -470,7 +498,7 @@ const App = () => {
     const itemIdSeen = new Map<string, number>();
     const requiredCols = REQUIRED_FIELDS.map((field) => ({
       field,
-      col: headerToCol.get(field)
+      col: getPrimaryCol(field)
     }));
 
     activeRows.forEach(({ row, rowIndex }) => {
@@ -488,7 +516,7 @@ const App = () => {
         }
       });
 
-      const itemIdCol = headerToCol.get("Item ID");
+      const itemIdCol = getPrimaryCol("Item ID");
       if (itemIdCol !== undefined) {
         const itemId = (row[itemIdCol] ?? "").trim();
         if (itemId) {
@@ -507,7 +535,7 @@ const App = () => {
       }
 
       URL_FIELDS.forEach((field) => {
-        const col = headerToCol.get(field);
+        const col = getPrimaryCol(field);
         if (col === undefined) return;
         const value = (row[col] ?? "").trim();
         if (!value) return;
@@ -544,8 +572,7 @@ const App = () => {
 
     activeRows.forEach(({ row }) => {
       const line = outputHeaders.map((field) => {
-        const sourceCol = headerToCol.get(field);
-        const rawValue = sourceCol === undefined ? "" : row[sourceCol] ?? "";
+        const rawValue = getMappedFieldValue(row, field);
         const normalized = normalizeCellForTsv(rawValue);
 
         if (field === "Price" || field === "Sale Price") {
@@ -572,11 +599,8 @@ const App = () => {
     }
 
     const blankOutputFields = outputHeaders.filter((field) => {
-      const sourceCol = headerToCol.get(field);
-      if (sourceCol === undefined) return true;
-      return activeRows.every(
-        ({ row }) => ((row[sourceCol] ?? "") as string).trim().length === 0
-      );
+      if (getColIndexes(field).length === 0) return true;
+      return activeRows.every(({ row }) => !hasAnyFieldValue(row, field));
     }).length;
     if (blankOutputFields > 0) {
       nextIssues.push({
@@ -1104,7 +1128,7 @@ const App = () => {
                         }}
                         value={header}
                         onChange={(event) => setHeaderValue(colIndex, event.target.value)}
-                        className="w-full rounded border border-slate-300 bg-white px-2 py-1 pr-7 text-xs"
+                        className="w-full rounded border border-slate-300 bg-white px-2 py-1 pr-14 text-xs"
                       >
                         {fieldOptionsByColumn[colIndex].map((option) => (
                           <option key={option.value || "blank"} value={option.value}>
@@ -1112,15 +1136,30 @@ const App = () => {
                           </option>
                         ))}
                       </select>
-                      <button
-                        type="button"
-                        tabIndex={-1}
-                        onClick={() => removeColumn(colIndex)}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-1 text-[11px] text-slate-500 hover:bg-slate-200 hover:text-slate-800"
-                        title="この列を削除"
-                      >
-                        ×
-                      </button>
+                      <div className="absolute right-1 top-1/2 flex -translate-y-1/2 gap-1">
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={() => {
+                            void openFieldReference(header);
+                          }}
+                          className="rounded px-1 text-[11px] text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+                          title="このフィールドの入力規則を開く"
+                          aria-label="このフィールドの入力規則を開く"
+                          disabled={!header.trim()}
+                        >
+                          ?
+                        </button>
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={() => removeColumn(colIndex)}
+                          className="rounded px-1 text-[11px] text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+                          title="この列を削除"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </div>
                   </th>
                 ))}

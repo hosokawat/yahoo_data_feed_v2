@@ -48,4 +48,4 @@ export const FULL_UPDATE_FIELDS = YAHOO_FIELDS.filter(
   (field) => field !== "Delete"
 );
 
-export const ARRAY_FIELDS = ["Product Type"] as const;
+export const ARRAY_FIELDS = [] as const;
