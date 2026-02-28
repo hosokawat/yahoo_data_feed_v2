@@ -58,6 +58,12 @@ npm run typecheck
 
 # 本番ビルド（Renderer + Electron main/preload）
 npm run build
+
+# Windows向け配布ファイル作成（ZIP）
+npm run package-win
+
+# Mac向け配布ファイル作成（DMG）
+npm run package-mac
 ```
 
 ## 使い方（v1）

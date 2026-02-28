@@ -63,8 +63,11 @@ const createEmptyRow = (colCount: number): string[] =>
 const parseClipboardTable = (raw: string): string[][] => {
   if (raw.length === 0) return [];
   const normalized = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  // Keep blank lines as part of the pasted table structure.
   const lines = normalized.split("\n");
+  // Preserve middle blank lines (table structure), but drop one trailing blank line.
+  if (lines[lines.length - 1] === "") {
+    lines.pop();
+  }
   return lines.map((line) => line.split("\t"));
 };
 
@@ -206,11 +209,23 @@ const App = () => {
   };
 
   const jumpToIssue = (issue: ValidationIssue): void => {
+    if (issue.code === "E-001") {
+      const blankColIndex = headers.findIndex((header) => header.trim() === "");
+      if (blankColIndex >= 0) {
+        focusHeaderCell(blankColIndex);
+        return;
+      }
+      if (headers.length > 0) {
+        focusHeaderCell(headers.length - 1);
+      }
+      return;
+    }
+
     if (issue.col === undefined) return;
     const colIndex = issue.col - 1;
     if (colIndex < 0) return;
 
-    if (issue.code === "E-001" || issue.code === "E-002") {
+    if (issue.code === "E-002") {
       focusHeaderCell(colIndex);
       return;
     }
