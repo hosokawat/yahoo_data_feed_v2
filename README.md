@@ -139,6 +139,14 @@ Warning（出力継続）:
 - Yahoo 29項目定義: [`docs/yahoo_feed_fields.md`](./docs/yahoo_feed_fields.md)
 - バリデーション仕様: [`docs/validation_rules.md`](./docs/validation_rules.md)
 
+## Yahoo公式資料（原典）
+
+- [動的ディスプレイ－データフィード（商品リスト）](https://ads-help.yahoo-net.jp/s/article/H000045740?language=ja)
+- [動的ディスプレイ（入稿規定）](https://ads-help.yahoo-net.jp/s/article/H000045743?language=ja)
+- [動的ディスプレイ広告について](https://ads-help.yahoo-net.jp/s/article/H000044698?language=ja)
+- [商品リストファイルのアップロードと商品リストの更新](https://ads-help.yahoo-net.jp/s/article/H000044346?language=ja)
+- [商品リストファイルの作成（動的ディスプレイ広告）](https://ads-help.yahoo-net.jp/s/article/H000044683?language=ja)
+
 ## 設定保存
 
 - 保存先: Electron `userData` 配下の `settings.json`
